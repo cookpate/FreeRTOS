@@ -601,3 +601,76 @@ void test_macro_xSemaphoreTake_blocking_mutex_inherit_disinherit( void )
 
     vSemaphoreDelete( xSemaphore );
 }
+
+/**
+ * @brief Test xSemaphoreGive on a mutex that is not held by the current task
+ * because the mutex is available (held by nobody).
+ * @details Create a mutex, then attempt to unlock it as a task while not held.
+ * Verify that xSemaphoreGive fails and the mutex remains available (unchanged).
+ * @coverage xQueueGenericSend
+ */
+void test_macro_xSemaphoreGive_fail_mutex_available_not_held_by_task( void )
+{
+    xTaskPriorityDisinherit_ExpectAndReturn( NULL, pdFALSE );
+
+    SemaphoreHandle_t xSemaphore = xSemaphoreCreateMutex();
+
+    TEST_ASSERT_NOT_EQUAL( NULL, xSemaphore );
+
+    /* Verify mutex is available */
+    TEST_ASSERT_EQUAL( B_SEMPHR_AVAILABLE, uxSemaphoreGetCount( xSemaphore ) );
+
+    /* Attempt to give the mutex when nobody holds it.
+     * Fails because an available mutex is treated as a full queue. */
+    TEST_ASSERT_EQUAL( pdFALSE, xSemaphoreGive( xSemaphore ) );
+
+    /* Verify mutex remains unchanged (still available) */
+    TEST_ASSERT_EQUAL( B_SEMPHR_AVAILABLE, uxSemaphoreGetCount( xSemaphore ) );
+
+    vSemaphoreDelete( xSemaphore );
+}
+
+/**
+ * @brief Test xSemaphoreGive on a mutex that is held by a different task.
+ * @details Create a mutex, take it with task A as the holder, then attempt to
+ * give it while the current task is task B. Verify that xSemaphoreGive fails
+ * and the mutex remains held by task A (unchanged).
+ * @coverage xQueueGenericSend
+ */
+void test_macro_xSemaphoreGive_fail_mutex_held_by_another_task( void )
+{
+    TaskHandle_t xTaskA = ( void * ) ( BaseType_t ) getNextMonotonicTestValue();
+    TaskHandle_t xTaskB = ( void * ) ( BaseType_t ) getNextMonotonicTestValue();
+
+    xTaskPriorityDisinherit_ExpectAndReturn( NULL, pdFALSE );
+
+    SemaphoreHandle_t xSemaphore = xSemaphoreCreateMutex();
+
+    /* Validate returned semaphore handle */
+    TEST_ASSERT_NOT_EQUAL( NULL, xSemaphore );
+
+    /* Take the mutex as task A */
+    pvTaskIncrementMutexHeldCount_ExpectAndReturn( xTaskA );
+
+    TEST_ASSERT_EQUAL( pdTRUE, xSemaphoreTake( xSemaphore, 0 ) );
+
+    /* Verify mutex is taken */
+    TEST_ASSERT_EQUAL( B_SEMPHR_TAKEN, uxSemaphoreGetCount( xSemaphore ) );
+
+    /* Verify the holder is task A */
+    TEST_ASSERT_EQUAL( xTaskA, xSemaphoreGetMutexHolder( xSemaphore ) );
+
+    /* Attempt to give the mutex while the current task is task B.
+     * Fails ownership check because the mutex is held by task A. */
+    xTaskGetCurrentTaskHandle_ExpectAndReturn( xTaskB );
+
+    TEST_ASSERT_EQUAL( pdFALSE, xSemaphoreGive( xSemaphore ) );
+
+    /* Verify mutex remains unchanged (taken) */
+    TEST_ASSERT_EQUAL( B_SEMPHR_TAKEN, uxSemaphoreGetCount( xSemaphore ) );
+
+    /* Verify the holder is still task A */
+    TEST_ASSERT_EQUAL( xTaskA, xSemaphoreGetMutexHolder( xSemaphore ) );
+
+    vSemaphoreDelete( xSemaphore );
+}
